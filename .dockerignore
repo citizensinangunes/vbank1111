@@ -32,11 +32,38 @@ Thumbs.db
 .git
 .gitignore
 
-# Docker
+# Docker (keep nginx for production)
 Dockerfile*
 docker-compose*.yml
 .dockerignore
-nginx/
+
+# Development and documentation
+README.md
+DEPLOYMENT.md
+*.md
+docs/
+
+# Development scripts
+scripts/
+Makefile
+
+# Logs and temporary files
+logs/
+*.log
+tmp/
+temp/
+
+# Database files (will be mounted as volumes)
+*.db
+*.db-shm
+*.db-wal
+data/
+uploads/
+backups/
+
+# Environment files
+*.env
+production.env
 
 # Logs
 logs
