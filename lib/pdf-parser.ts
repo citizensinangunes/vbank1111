@@ -1,5 +1,5 @@
 import { VakifRecord, createRecordFingerprint } from './database';
-import * as pdf from 'pdf-parse';
+import pdfParse from 'pdf-parse';
 
 export async function parsePdfBuffer(buffer: Buffer): Promise<Omit<VakifRecord, 'id'>[]> {
   try {
@@ -7,7 +7,7 @@ export async function parsePdfBuffer(buffer: Buffer): Promise<Omit<VakifRecord, 
     console.log('📊 PDF parsing başladı, buffer size:', buffer.length);
     
     // pdf-parse kullanarak PDF'i text'e çevir (platform bağımsız)
-    const data = await pdf(buffer);
+    const data = await pdfParse(buffer);
     const text = data.text;
     
     console.log('✅ PDF converted to text using pdf-parse');
