@@ -1,0 +1,52 @@
+# Netlify Configuration for Vakıf Dashboard
+# Next.js App Router Deployment
+
+[build]
+  command = "npm run build"
+  functions = ".netlify/functions"
+  publish = ".next"
+
+# Essential Next.js plugin for Netlify
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[build.environment]
+  NODE_VERSION = "18"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+# Next.js Runtime for Netlify
+[functions]
+  external_node_modules = ["sharp"]
+  node_bundler = "nft"
+
+# Redirects for API routes
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/___netlify-handler"
+  status = 200
+
+# Catch-all for Next.js routes
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/___netlify-handler"
+  status = 200
+
+# Headers for security and performance
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# PDF upload size limit
+[[headers]]
+  for = "/api/upload-pdf"
+  [headers.values]
+    Content-Length = "10485760"  # 10MB 
