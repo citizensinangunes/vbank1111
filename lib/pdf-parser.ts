@@ -1,47 +1,16 @@
 import { VakifRecord, createRecordFingerprint } from './database';
-import { writeFileSync, unlinkSync, readFileSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { execSync } from 'child_process';
+import * as pdf from 'pdf-parse';
 
 export async function parsePdfBuffer(buffer: Buffer): Promise<Omit<VakifRecord, 'id'>[]> {
   try {
-    console.log('🔍 PDF Parser v16 - CSV Style Logic');
+    console.log('🔍 PDF Parser v17 - Platform Independent with pdf-parse');
     console.log('📊 PDF parsing başladı, buffer size:', buffer.length);
     
-    // Geçici dosya oluştur
-    const tempFilePath = join(tmpdir(), `temp-pdf-${Date.now()}.pdf`);
-    const textFilePath = join(tmpdir(), `temp-text-${Date.now()}.txt`);
+    // pdf-parse kullanarak PDF'i text'e çevir (platform bağımsız)
+    const data = await pdf(buffer);
+    const text = data.text;
     
-    writeFileSync(tempFilePath, buffer);
-    console.log('📁 Temp PDF file created:', tempFilePath);
-    
-    // pdftotext kullanarak PDF'i text'e çevir
-    try {
-      execSync(`/opt/homebrew/bin/pdftotext "${tempFilePath}" "${textFilePath}"`, { 
-        encoding: 'utf8',
-        timeout: 30000 
-      });
-      console.log('✅ PDF converted to text using pdftotext');
-    } catch (error) {
-      console.error('❌ pdftotext error:', error);
-      throw new Error('PDF text extraction failed');
-    }
-    
-    // Text dosyasını oku
-    let text = '';
-    if (readFileSync) {
-      text = readFileSync(textFilePath, 'utf8');
-    }
-    
-    // Geçici dosyaları sil
-    try {
-      unlinkSync(tempFilePath);
-      unlinkSync(textFilePath);
-    } catch (cleanupError) {
-      console.warn('⚠️ Cleanup error:', cleanupError);
-    }
-    
+    console.log('✅ PDF converted to text using pdf-parse');
     console.log('📝 PDF text extracted, length:', text.length);
     
     return await extractFinancialDataCSVStyle(text);
@@ -186,7 +155,7 @@ async function parseTransactionFromContext(context: string[]): Promise<Omit<Vaki
       amount: totalCost, // Hesaplanan toplam maliyeti kullan
       description,
       category: 'Hisse Senetleri',
-      source: 'PDF Import Vakıf CSV Style v2'
+      source: 'PDF Import Vakıf CSV Style v3 - Platform Independent'
     };
     
   } catch (error) {

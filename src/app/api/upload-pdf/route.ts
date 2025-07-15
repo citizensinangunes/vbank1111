@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
     const fileHash = createFileHash(buffer);
     console.log('File hash:', fileHash);
 
-    // PDF daha önce işlenmiş mi kontrol et
-    const pdfResult = insertPdfDocument(file.name, fileHash, file.size);
+    // PDF daha önce işlenmiş mi kontrol et (async)
+    const pdfResult = await insertPdfDocument(file.name, fileHash, file.size);
     
     if (pdfResult.duplicate) {
       return NextResponse.json({
@@ -70,12 +70,12 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    // Kayıtları veritabanına ekle (duplicate kontrolü ile)
+    // Kayıtları veritabanına ekle (duplicate kontrolü ile) - async
     console.log('Veritabanına kayıt ekleniyor...');
-    const insertResult = insertVakifRecords(records);
+    const insertResult = await insertVakifRecords(records);
 
-    // PDF kayıt sayısını güncelle
-    updatePdfRecordCount(pdfResult.id, insertResult.inserted);
+    // PDF kayıt sayısını güncelle - async
+    await updatePdfRecordCount(pdfResult.id, insertResult.inserted);
 
     console.log('Insert sonucu:', insertResult);
 

@@ -3,42 +3,35 @@
 
 [build]
   command = "npm run build"
-  functions = ".netlify/functions"
   publish = ".next"
 
-# Essential Next.js plugin for Netlify
+[build.environment]
+  NETLIFY_NEXT_PLUGIN_SKIP = "false"
+
+# Supabase environment variables
+# Netlify Dashboard > Site settings > Environment variables'da ayarlayın:
+# NEXT_PUBLIC_SUPABASE_URL = https://your-project.supabase.co
+# NEXT_PUBLIC_SUPABASE_ANON_KEY = your-anon-key-here
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-[build.environment]
-  NODE_VERSION = "18"
-  NEXT_TELEMETRY_DISABLED = "1"
-
-# Next.js Runtime for Netlify
 [functions]
-  external_node_modules = ["sharp"]
-  node_bundler = "nft"
+  included_files = ["lib/**", "public/**"]
 
-# Redirects for API routes
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/___netlify-handler"
-  status = 200
-
-# Catch-all for Next.js routes
 [[redirects]]
   from = "/*"
-  to = "/.netlify/functions/___netlify-handler"
+  to = "/index.html"
   status = 200
 
-# Headers for security and performance
 [[headers]]
   for = "/*"
   [headers.values]
     X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
     X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
 
 [[headers]]
   for = "/_next/static/*"

@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server';
-import { getDatabase } from '../../../../lib/database';
+import { getAllVakifRecords } from '../../../../lib/database';
 
 export async function GET() {
   try {
-    const db = getDatabase();
-    
-    // Tüm kayıtları getir
-    const records = db.prepare(`
-      SELECT * FROM vakif_records 
-      ORDER BY date DESC, id DESC
-    `).all();
+    // Tüm kayıtları getir - async function
+    const records = await getAllVakifRecords();
 
     console.log('API: Toplam kayıt sayısı:', records.length);
 

@@ -1,5 +1,4 @@
-import Database from 'better-sqlite3';
-import { join } from 'path';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createHash } from 'crypto';
 
 export interface VakifRecord {
@@ -10,71 +9,46 @@ export interface VakifRecord {
   description: string;
   category: string;
   source: string;
-  fingerprint?: string; // Benzersiz tanımlayıcı
+  fingerprint?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
-let db: Database.Database | null = null;
+export interface PdfDocument {
+  id?: number;
+  filename: string;
+  file_hash: string;
+  upload_date?: string;
+  records_count?: number;
+  file_size?: number;
+}
 
-export function getDatabase(): Database.Database {
-  if (!db) {
-    const dbPath = join(process.cwd(), 'vakif.db');
-    db = new Database(dbPath);
+let supabase: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient {
+  if (!supabase) {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     
-    // Enable WAL mode for better concurrent access
-    db.pragma('journal_mode = WAL');
+    if (!supabaseUrl || !supabaseKey) {
+      throw new Error('Supabase URL ve Key environment variables gerekli!');
+    }
     
-    initializeDatabase();
+    supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('✅ Supabase client initialized');
   }
   
-  return db;
+  return supabase;
 }
 
-function initializeDatabase() {
-  if (!db) return;
-
-  // Ana tablo oluştur
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS vakif_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      date TEXT NOT NULL,
-      type TEXT NOT NULL CHECK (type IN ('gelir', 'gider', 'bağış', 'harcama')),
-      amount REAL NOT NULL,
-      description TEXT NOT NULL,
-      category TEXT NOT NULL,
-      source TEXT NOT NULL DEFAULT 'Manual',
-      fingerprint TEXT UNIQUE NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
-
-  // PDF dosyaları tablosu
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pdf_documents (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      filename TEXT NOT NULL,
-      file_hash TEXT UNIQUE NOT NULL,
-      upload_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-      records_count INTEGER DEFAULT 0,
-      file_size INTEGER DEFAULT 0
-    )
-  `);
-
-  // Index'ler oluştur
-  db.exec(`
-    CREATE INDEX IF NOT EXISTS idx_vakif_date ON vakif_records(date);
-    CREATE INDEX IF NOT EXISTS idx_vakif_type ON vakif_records(type);
-    CREATE INDEX IF NOT EXISTS idx_vakif_category ON vakif_records(category);
-    CREATE INDEX IF NOT EXISTS idx_vakif_fingerprint ON vakif_records(fingerprint);
-    CREATE INDEX IF NOT EXISTS idx_pdf_hash ON pdf_documents(file_hash);
-  `);
-
-  console.log('Database initialized with fingerprint system');
+// Database initialization (tablolar Supabase dashboard'da oluşturulacak)
+export async function initializeDatabase() {
+  console.log('🗄️ Database initialization - tablolar Supabase dashboard\'da oluşturulmalı');
+  return true;
 }
 
 // Benzersiz fingerprint oluştur
 export function createRecordFingerprint(record: Omit<VakifRecord, 'id' | 'fingerprint'>): string {
-  // Daha güvenilir fingerprint için source ve tüm alanları kullan
   const dataString = `${record.date}|${record.type}|${record.amount.toFixed(8)}|${record.description.trim()}|${record.category}|${record.source}`;
   return createHash('sha256').update(dataString).digest('hex').substring(0, 16);
 }
@@ -85,139 +59,179 @@ export function createFileHash(buffer: Buffer): string {
 }
 
 // Kayıt ekle (duplicate kontrolü ile)
-export function insertVakifRecord(record: Omit<VakifRecord, 'id'>): { success: boolean; id?: number; duplicate?: boolean } {
-  const db = getDatabase();
+export async function insertVakifRecord(record: Omit<VakifRecord, 'id'>): Promise<{ success: boolean; id?: number; duplicate?: boolean }> {
+  const supabase = getSupabaseClient();
   
   try {
     const fingerprint = record.fingerprint || createRecordFingerprint(record);
     
     // Duplicate kontrolü
-    const existing = db.prepare('SELECT id FROM vakif_records WHERE fingerprint = ?').get(fingerprint);
-    if (existing) {
+    const { data: existing, error: checkError } = await supabase
+      .from('vakif_records')
+      .select('id')
+      .eq('fingerprint', fingerprint)
+      .single();
+    
+    if (existing && !checkError) {
       console.log('Duplicate record found, skipping:', fingerprint);
       return { success: false, duplicate: true };
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO vakif_records (date, type, amount, description, category, source, fingerprint)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
+    const { data, error } = await supabase
+      .from('vakif_records')
+      .insert([{
+        date: record.date,
+        type: record.type,
+        amount: record.amount,
+        description: record.description,
+        category: record.category,
+        source: record.source || 'Manual',
+        fingerprint: fingerprint
+      }])
+      .select('id')
+      .single();
     
-    const result = stmt.run(
-      record.date,
-      record.type,
-      record.amount,
-      record.description,
-      record.category,
-      record.source || 'Manual',
-      fingerprint
-    );
-    
-    console.log('Record inserted with ID:', result.lastInsertRowid);
-    return { success: true, id: result.lastInsertRowid as number };
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-      console.log('Duplicate record detected by constraint:', record);
-      return { success: false, duplicate: true };
+    if (error) {
+      if (error.code === '23505') { // unique constraint violation
+        console.log('Duplicate record detected by constraint:', record);
+        return { success: false, duplicate: true };
+      }
+      throw error;
     }
     
+    console.log('Record inserted with ID:', data.id);
+    return { success: true, id: data.id };
+  } catch (error) {
     console.error('Insert error:', error);
     throw error;
   }
 }
 
 // Toplu kayıt ekleme (duplicate kontrolü ile)
-export function insertVakifRecords(records: Omit<VakifRecord, 'id'>[]): { 
+export async function insertVakifRecords(records: Omit<VakifRecord, 'id'>[]): Promise<{ 
   inserted: number; 
   duplicates: number; 
   total: number;
   insertedIds: number[];
-} {
-  const db = getDatabase();
+}> {
   const result = { inserted: 0, duplicates: 0, total: records.length, insertedIds: [] as number[] };
   
-  // Transaction kullan
-  const transaction = db.transaction(() => {
-    for (const record of records) {
-      const insertResult = insertVakifRecord(record);
+  // Supabase'de batch insert yaparken duplicate kontrolü için tek tek yapıyoruz
+  for (const record of records) {
+    try {
+      const insertResult = await insertVakifRecord(record);
       if (insertResult.success && insertResult.id) {
         result.inserted++;
         result.insertedIds.push(insertResult.id);
       } else if (insertResult.duplicate) {
         result.duplicates++;
       }
+    } catch (error) {
+      console.error('Batch insert error for record:', record, error);
     }
-  });
-  
-  transaction();
+  }
   
   console.log(`Bulk insert completed: ${result.inserted} inserted, ${result.duplicates} duplicates, ${result.total} total`);
   return result;
 }
 
 // PDF dosyası kaydet (duplicate kontrolü ile)
-export function insertPdfDocument(filename: string, fileHash: string, fileSize: number): { 
+export async function insertPdfDocument(filename: string, fileHash: string, fileSize: number): Promise<{ 
   success: boolean; 
   id?: number; 
   duplicate?: boolean 
-} {
-  const db = getDatabase();
+}> {
+  const supabase = getSupabaseClient();
   
   try {
     // Duplicate kontrolü
-    const existing = db.prepare('SELECT id FROM pdf_documents WHERE file_hash = ?').get(fileHash);
+    const { data: existing } = await supabase
+      .from('pdf_documents')
+      .select('id')
+      .eq('file_hash', fileHash)
+      .single();
+    
     if (existing) {
       console.log('PDF already processed:', filename);
       return { success: false, duplicate: true };
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO pdf_documents (filename, file_hash, file_size)
-      VALUES (?, ?, ?)
-    `);
+    const { data, error } = await supabase
+      .from('pdf_documents')
+      .insert([{
+        filename,
+        file_hash: fileHash,
+        file_size: fileSize,
+        records_count: 0
+      }])
+      .select('id')
+      .single();
     
-    const result = stmt.run(filename, fileHash, fileSize);
-    return { success: true, id: result.lastInsertRowid as number };
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-      return { success: false, duplicate: true };
+    if (error) {
+      if (error.code === '23505') {
+        return { success: false, duplicate: true };
+      }
+      throw error;
     }
+    
+    return { success: true, id: data.id };
+  } catch (error) {
+    console.error('PDF insert error:', error);
     throw error;
   }
 }
 
 // PDF kayıt sayısını güncelle
-export function updatePdfRecordCount(pdfId: number, recordCount: number): void {
-  const db = getDatabase();
-  const stmt = db.prepare('UPDATE pdf_documents SET records_count = ? WHERE id = ?');
-  stmt.run(recordCount, pdfId);
+export async function updatePdfRecordCount(pdfId: number, recordCount: number): Promise<void> {
+  const supabase = getSupabaseClient();
+  
+  const { error } = await supabase
+    .from('pdf_documents')
+    .update({ records_count: recordCount })
+    .eq('id', pdfId);
+  
+  if (error) {
+    throw error;
+  }
 }
 
 // Tüm kayıtları getir
-export function getAllVakifRecords(): VakifRecord[] {
-  const db = getDatabase();
-  const stmt = db.prepare('SELECT * FROM vakif_records ORDER BY date DESC, id DESC');
-  return stmt.all() as VakifRecord[];
+export async function getAllVakifRecords(): Promise<VakifRecord[]> {
+  const supabase = getSupabaseClient();
+  
+  const { data, error } = await supabase
+    .from('vakif_records')
+    .select('*')
+    .order('date', { ascending: false })
+    .order('id', { ascending: false });
+  
+  if (error) {
+    throw error;
+  }
+  
+  return data || [];
 }
 
 // İstatistikleri getir
-export function getVakifStats() {
-  const db = getDatabase();
+export async function getVakifStats() {
+  const supabase = getSupabaseClient();
   
-  const stats = db.prepare(`
-    SELECT 
-      COUNT(*) as totalRecords,
-      SUM(CASE WHEN type IN ('gelir', 'bağış') THEN amount ELSE 0 END) as totalIncome,
-      SUM(CASE WHEN type IN ('gider', 'harcama') THEN amount ELSE 0 END) as totalExpense,
-      COUNT(DISTINCT date) as activeDays,
-      COUNT(DISTINCT category) as categories
-    FROM vakif_records
-  `).get() as {
-    totalRecords: number;
-    totalIncome: number;
-    totalExpense: number;
-    activeDays: number;
-    categories: number;
+  const { data, error } = await supabase
+    .from('vakif_records')
+    .select('type, amount, date, category');
+  
+  if (error) {
+    throw error;
+  }
+  
+  const records = data || [];
+  
+  const stats = {
+    totalRecords: records.length,
+    totalIncome: records.filter(r => ['gelir', 'bağış'].includes(r.type)).reduce((sum, r) => sum + r.amount, 0),
+    totalExpense: records.filter(r => ['gider', 'harcama'].includes(r.type)).reduce((sum, r) => sum + r.amount, 0),
+    activeDays: new Set(records.map(r => r.date)).size,
+    categories: new Set(records.map(r => r.category)).size
   };
   
   return {
@@ -227,55 +241,72 @@ export function getVakifStats() {
 }
 
 // PDF'leri getir
-export function getAllPdfDocuments() {
-  const db = getDatabase();
-  const stmt = db.prepare('SELECT * FROM pdf_documents ORDER BY upload_date DESC');
-  return stmt.all();
+export async function getAllPdfDocuments(): Promise<PdfDocument[]> {
+  const supabase = getSupabaseClient();
+  
+  const { data, error } = await supabase
+    .from('pdf_documents')
+    .select('*')
+    .order('upload_date', { ascending: false });
+  
+  if (error) {
+    throw error;
+  }
+  
+  return data || [];
 }
 
 // Veritabanını temizle (test için)
-export function clearDatabase() {
-  const db = getDatabase();
-  db.exec('DELETE FROM vakif_records');
-  db.exec('DELETE FROM pdf_documents');
+export async function clearDatabase(): Promise<void> {
+  const supabase = getSupabaseClient();
+  
+  await supabase.from('vakif_records').delete().neq('id', 0);
+  await supabase.from('pdf_documents').delete().neq('id', 0);
+  
   console.log('Database cleared');
 }
 
 // Duplicate kayıtları temizle
-export function removeDuplicateRecords(): number {
-  const db = getDatabase();
+export async function removeDuplicateRecords(): Promise<number> {
+  const supabase = getSupabaseClient();
   
-  const result = db.prepare(`
-    DELETE FROM vakif_records 
-    WHERE id NOT IN (
-      SELECT MIN(id) 
-      FROM vakif_records 
-      GROUP BY fingerprint
-    )
-  `).run();
+  // PostgreSQL'de duplicate temizleme
+  const { data, error } = await supabase.rpc('remove_duplicate_records');
   
-  console.log(`Removed ${result.changes} duplicate records`);
-  return result.changes;
+  if (error) {
+    console.error('Remove duplicates error:', error);
+    return 0;
+  }
+  
+  const removedCount = data || 0;
+  console.log(`Removed ${removedCount} duplicate records`);
+  return removedCount;
 }
 
 // Veritabanı durumunu kontrol et
-export function getDatabaseInfo() {
-  const db = getDatabase();
+export async function getDatabaseInfo() {
+  const supabase = getSupabaseClient();
   
-  const recordCount = db.prepare('SELECT COUNT(*) as count FROM vakif_records').get() as { count: number };
-  const pdfCount = db.prepare('SELECT COUNT(*) as count FROM pdf_documents').get() as { count: number };
-  const duplicateCount = db.prepare(`
-    SELECT COUNT(*) as count FROM (
-      SELECT fingerprint, COUNT(*) as cnt 
-      FROM vakif_records 
-      GROUP BY fingerprint 
-      HAVING cnt > 1
-    )
-  `).get() as { count: number };
+  const [recordsResult, pdfsResult] = await Promise.all([
+    supabase.from('vakif_records').select('fingerprint', { count: 'exact', head: true }),
+    supabase.from('pdf_documents').select('id', { count: 'exact', head: true })
+  ]);
+  
+  // Duplicate count için basit yaklaşım
+  const { data: allRecords } = await supabase.from('vakif_records').select('fingerprint');
+  const fingerprints = allRecords?.map(r => r.fingerprint) || [];
+  const uniqueFingerprints = new Set(fingerprints);
+  const duplicateCount = fingerprints.length - uniqueFingerprints.size;
   
   return {
-    totalRecords: recordCount.count,
-    totalPdfs: pdfCount.count,
-    duplicateFingerprints: duplicateCount.count
+    totalRecords: recordsResult.count || 0,
+    totalPdfs: pdfsResult.count || 0,
+    duplicateFingerprints: duplicateCount
   };
+}
+
+// Backward compatibility için
+export function getDatabase() {
+  console.warn('getDatabase() deprecated, use getSupabaseClient()');
+  return getSupabaseClient();
 } 
