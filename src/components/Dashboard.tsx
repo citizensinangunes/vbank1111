@@ -1,10 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, Area, AreaChart } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Activity, PieChart as PieIcon, BarChart3, ArrowUpRight, ArrowDownRight, Target, Percent, Calendar, TrendingUpIcon } from 'lucide-react';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { TrendingUp, DollarSign, Activity, ArrowUpRight, ArrowDownRight, Calendar } from 'lucide-react';
 import StatCard from './StatCard';
-import { findStockCodeSync } from '../../lib/stock-codes';
 
 interface VakifRecord {
   id?: number;
@@ -72,8 +71,6 @@ interface DashboardData {
   };
 }
 
-const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658'];
-
 // Türkçe sayı formatlaması
 const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('tr-TR', {
@@ -86,10 +83,6 @@ const formatCurrency = (amount: number): string => {
 
 const formatNumber = (number: number): string => {
   return new Intl.NumberFormat('tr-TR').format(number);
-};
-
-const formatPercent = (value: number): string => {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 };
 
 // İşlem detaylarını parse eden fonksiyon
@@ -129,13 +122,11 @@ const parseTransactionDetails = (record: VakifRecord) => {
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedPeriod, setSelectedPeriod] = useState('7d');
   const [sortField, setSortField] = useState<string>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [filterSymbol, setFilterSymbol] = useState('');
   const [filterType, setFilterType] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [showMobileCards, setShowMobileCards] = useState(false);
   const recordsPerPage = 25;
 
   useEffect(() => {
@@ -143,7 +134,7 @@ export default function Dashboard() {
     
     // Mobil cihaz kontrolü
     const checkMobile = () => {
-      setShowMobileCards(window.innerWidth < 768);
+      // setShowMobileCards(window.innerWidth < 768);
     };
     
     checkMobile();
@@ -194,11 +185,11 @@ export default function Dashboard() {
   
   stockRecords.forEach(record => {
     const details = parseTransactionDetails(record);
-    const symbol = details.symbol;
+    const stockSymbol = details.symbol;
     
-    if (!stockPerformanceMap.has(symbol)) {
-      stockPerformanceMap.set(symbol, {
-        symbol,
+    if (!stockPerformanceMap.has(stockSymbol)) {
+      stockPerformanceMap.set(stockSymbol, {
+        symbol: stockSymbol,
         totalBuy: 0,
         totalSell: 0,
         realizedPnL: 0,
@@ -211,7 +202,7 @@ export default function Dashboard() {
       });
     }
     
-    const stock = stockPerformanceMap.get(symbol)!;
+    const stock = stockPerformanceMap.get(stockSymbol)!;
     stock.transactionCount++;
     stock.totalCommission += details.commission;
     
@@ -223,7 +214,7 @@ export default function Dashboard() {
   });
 
   // Net kar/zarar hesaplama
-  stockPerformanceMap.forEach((stock, symbol) => {
+  stockPerformanceMap.forEach((stock) => {
     stock.realizedPnL = stock.totalSell - stock.totalBuy;
     stock.netReturn = stock.realizedPnL - stock.totalCommission;
     stock.returnPercentage = stock.totalBuy > 0 ? (stock.realizedPnL / stock.totalBuy) * 100 : 0;
@@ -276,15 +267,26 @@ export default function Dashboard() {
 
   // Hisse bazında güncel pozisyon analizi
   const stockData: StockData[] = [];
-  const stockMap = new Map<string, any>();
+  const stockMap = new Map<string, {
+    symbol: string;
+    totalVolume: number;
+    buyVolume: number;
+    sellVolume: number;
+    netPosition: number;
+    transactions: number;
+    buyTransactions: number;
+    sellTransactions: number;
+    lastAction: 'buy' | 'sell';
+    lastDate: Date;
+  }>();
 
   stockRecords.forEach(record => {
     const details = parseTransactionDetails(record);
-    const symbol = details.symbol;
+    const recordSymbol = details.symbol;
 
-    if (!stockMap.has(symbol)) {
-      stockMap.set(symbol, {
-        symbol,
+    if (!stockMap.has(recordSymbol)) {
+      stockMap.set(recordSymbol, {
+        symbol: recordSymbol,
         totalVolume: 0,
         buyVolume: 0,
         sellVolume: 0,
@@ -297,7 +299,7 @@ export default function Dashboard() {
       });
     }
 
-    const stock = stockMap.get(symbol);
+    const stock = stockMap.get(recordSymbol)!;
     stock.transactions++;
     stock.totalVolume += record.amount;
 
@@ -320,8 +322,19 @@ export default function Dashboard() {
     stock.netPosition = stock.sellVolume - stock.buyVolume;
   });
 
-  stockMap.forEach((stock, symbol) => {
-    stockData.push(stock);
+  stockMap.forEach((stock) => {
+    stockData.push({
+      symbol: stock.symbol,
+      totalVolume: stock.totalVolume,
+      buyVolume: stock.buyVolume,
+      sellVolume: stock.sellVolume,
+      netPosition: stock.netPosition,
+      transactions: stock.transactions,
+      buyTransactions: stock.buyTransactions,
+      sellTransactions: stock.sellTransactions,
+      avgPrice: stock.totalVolume / stock.transactions,
+      lastAction: stock.lastAction
+    });
   });
 
   stockData.sort((a, b) => b.totalVolume - a.totalVolume);
@@ -341,7 +354,7 @@ export default function Dashboard() {
 
   // Sıralama
   const sortedRecords = [...filteredRecords].sort((a, b) => {
-    let aValue: any, bValue: any;
+    let aValue: string | number | Date, bValue: string | number | Date;
 
     switch (sortField) {
       case 'date':

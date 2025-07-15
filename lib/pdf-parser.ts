@@ -68,7 +68,7 @@ async function extractFinancialDataCSVStyle(text: string): Promise<Omit<VakifRec
       console.log(`\n🎯 GZ satırı bulundu (${i + 1}): "${line}"`);
       
       // Sonraki satırları topla (max 10 satır)
-      let context = [line];
+      const context = [line];
       for (let j = 1; j <= 10 && i + j < lines.length; j++) {
         const nextLine = lines[i + j];
         context.push(nextLine);
@@ -114,7 +114,7 @@ async function parseTransactionFromContext(context: string[]): Promise<Omit<Vaki
     let amount = null;
     let isNegative = false;
     
-    for (let line of context) {
+    for (const line of context) {
       const amountMatch = line.match(/GZ:\s*$/) ? 
         context[context.indexOf(line) + 1]?.match(/(-?[\d,.]+)\s*TL/) :
         line.match(/GZ:\s*(-?[\d,.]+)\s*TL/);
@@ -135,7 +135,7 @@ async function parseTransactionFromContext(context: string[]): Promise<Omit<Vaki
     let transactionType = null;
     let time = null;
     
-    for (let line of context) {
+    for (const line of context) {
       // Saat + Hisse + Adet pattern'i
       const stockMatch = line.match(/(\d{2}:\d{2}:\d{2})\s+([A-Z]{4,6})\s+([\d,.]+)\s+ADET/);
       if (stockMatch) {

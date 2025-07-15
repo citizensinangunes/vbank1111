@@ -33,7 +33,7 @@ export async function GET() {
       recordCount: records.length
     };
 
-    records.forEach((record: any) => {
+    records.forEach((record: { type: string; amount: number }) => {
       if (record.type === 'gelir') {
         summary.totalIncome += record.amount;
       } else if (record.type === 'gider') {

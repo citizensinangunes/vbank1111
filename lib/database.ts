@@ -212,7 +212,13 @@ export function getVakifStats() {
       COUNT(DISTINCT date) as activeDays,
       COUNT(DISTINCT category) as categories
     FROM vakif_records
-  `).get() as any;
+  `).get() as {
+    totalRecords: number;
+    totalIncome: number;
+    totalExpense: number;
+    activeDays: number;
+    categories: number;
+  };
   
   return {
     ...stats,
